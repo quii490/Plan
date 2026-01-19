@@ -17,17 +17,31 @@
     <!-- Firebase SDKs (Modular) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAnalytics } from "firebase/analytics";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // --- Firebase Config Logic ---
-        let firebaseConfig;
-        let appId = 'lab-orbit-default';
+        // --- Configuration & Mode Logic ---
+        
+        // USER PROVIDED CONFIG (Hardcoded for Auto-Connect)
+        const userFirebaseConfig = {
+            apiKey: "AIzaSyC-3qYLxIXSRg-xoR8vu2B7DS98Xnh45pI",
+            authDomain: "plan-2026-f69b3.firebaseapp.com",
+            projectId: "plan-2026-f69b3",
+            storageBucket: "plan-2026-f69b3.firebasestorage.app",
+            messagingSenderId: "1015487842392",
+            appId: "1:1015487842392:web:96e7f72b90a17055d7e22d",
+            measurementId: "G-M8GR43SRVD"
+        };
+
+        let firebaseConfig = userFirebaseConfig; // Default to user config
+        let appId = 'plan-2026-f69b3'; // Use Project ID as internal App ID
+        
         let app, auth, db;
         let currentUser = null;
+        let isOfflineMode = false;
 
-        async function startApp(config, id) {
+        // Start Firebase Mode
+        async function startFirebaseApp(config, id) {
             try {
                 firebaseConfig = config;
                 if(id) appId = id;
@@ -45,28 +59,43 @@
                     currentUser = user;
                     if (user) {
                         setupDataListener(user.uid);
-                        document.getElementById('setup-modal').classList.add('hidden');
+                        // Hide modal if it's open
+                        const modal = document.getElementById('setup-modal');
+                        if (modal) modal.classList.add('hidden');
                     }
                 });
-                console.log("Firebase Connected.");
+                console.log("Firebase Connected via Hardcoded Config.");
             } catch (e) {
                 console.error("Init Error:", e);
-                // Fallback handled by setup modal
+                // Only alert if we aren't in offline mode preference
+                if (localStorage.getItem('lab_orbit_mode') !== 'offline') {
+                    console.warn("Connection failed, falling back to offline mode.");
+                }
+                startOfflineMode();
             }
         }
 
-        // --- Init Strategy ---
-        if (typeof __firebase_config !== 'undefined') {
-            if (typeof __app_id !== 'undefined') appId = __app_id;
-            startApp(JSON.parse(__firebase_config), appId);
-        } else {
-            const localConfig = localStorage.getItem('lab_orbit_config');
-            if (localConfig) {
-                startApp(JSON.parse(localConfig));
+        // Start Offline Mode
+        window.startOfflineMode = function() {
+            console.log("Starting Offline Mode...");
+            isOfflineMode = true;
+            localStorage.setItem('lab_orbit_mode', 'offline');
+            
+            // Load from LocalStorage or Init
+            const localData = localStorage.getItem('lab_orbit_data');
+            if (localData) {
+                window.appData = JSON.parse(localData);
             } else {
-                // Wait for user to input config in modal after entering app
+                window.appData = window.getInitialAppData();
+                window.saveData(); // Initial save
             }
-        }
+            
+            const modal = document.getElementById('setup-modal');
+            if (modal) modal.classList.add('hidden');
+            
+            window.renderCurrentView();
+            window.updateGlobalProgress();
+        };
 
         function setupDataListener(userId) {
             const docRef = doc(db, 'artifacts', appId, 'users', userId, 'labData', 'main');
@@ -84,26 +113,40 @@
             });
         }
 
+        // --- Universal Save Function ---
         window.saveData = async () => {
-            if (!currentUser || !db) return;
-            const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'labData', 'main');
-            await setDoc(docRef, window.appData);
-        };
-
-        window.saveConfigAndReload = () => {
-            const input = document.getElementById('firebase-config-input').value;
-            try {
-                const config = JSON.parse(input);
-                localStorage.setItem('lab_orbit_config', JSON.stringify(config));
-                window.location.reload();
-            } catch (e) {
-                alert("Invalid JSON.");
+            if (isOfflineMode) {
+                // Save to LocalStorage
+                localStorage.setItem('lab_orbit_data', JSON.stringify(window.appData));
+                console.log("Saved to LocalStorage");
+            } else {
+                // Save to Firebase
+                if (!currentUser || !db) return;
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'labData', 'main');
+                await setDoc(docRef, window.appData);
             }
         };
 
+        // --- Init Strategy ---
+        // 1. Check if Canvas Env (Has Priority)
+        if (typeof __firebase_config !== 'undefined') {
+            if (typeof __app_id !== 'undefined') appId = __app_id;
+            startFirebaseApp(JSON.parse(__firebase_config), appId);
+        } else {
+            // 2. Check Local Preference for Offline
+            const mode = localStorage.getItem('lab_orbit_mode');
+            
+            if (mode === 'offline') {
+                window.startOfflineMode();
+            } else {
+                // 3. Default to Hardcoded User Config (Auto-Connect)
+                startFirebaseApp(userFirebaseConfig, 'plan-2026-f69b3');
+            }
+        }
+
         window.clearConfig = () => {
-            if(confirm("Disconnect Database?")) {
-                localStorage.removeItem('lab_orbit_config');
+            if(confirm("Reset all settings and data connection? (Local data will persist)")) {
+                localStorage.removeItem('lab_orbit_mode');
                 window.location.reload();
             }
         };
@@ -154,7 +197,7 @@
 </head>
 <body class="h-screen w-screen relative">
 
-    <!-- LANDING PAGE (New Feature) -->
+    <!-- LANDING PAGE -->
     <div id="landing-page" class="fixed inset-0 z-[100] flex flex-col items-center justify-center text-white transition-opacity duration-700">
         <canvas id="particle-canvas" class="absolute inset-0 w-full h-full opacity-60"></canvas>
         
@@ -204,8 +247,8 @@
 
             <div class="p-4 border-t border-stone-100 bg-stone-50">
                 <div class="flex justify-between items-center mb-2">
-                    <div class="text-xs text-stone-400">Progress</div>
-                    <button onclick="clearConfig()" class="text-xs text-stone-400 hover:text-red-500" title="Reset Config">⚙️ Config</button>
+                    <div class="text-xs text-stone-400">Settings</div>
+                    <button onclick="clearConfig()" class="text-xs text-stone-400 hover:text-red-500" title="Reset Config">🔄 Reset</button>
                 </div>
                 <div class="w-full bg-stone-200 rounded-full h-2.5">
                     <div id="global-progress-bar" class="bg-teal-600 h-2.5 rounded-full" style="width: 0%"></div>
@@ -230,27 +273,25 @@
             <div id="content-container" class="space-y-6">
                 <div class="flex items-center justify-center h-64 text-stone-400">
                     <div class="typing-indicator"><span></span><span></span><span></span></div>
-                    <span class="ml-2">Connecting to Lab Data...</span>
+                    <span class="ml-2">Loading Lab Data...</span>
                 </div>
             </div>
         </main>
         
-        <!-- AI Fab (Inside App) -->
+        <!-- AI Fab -->
         <button onclick="toggleChat()" class="ai-fab bg-teal-600 text-white p-4 rounded-full shadow-lg hover:bg-teal-700 focus:outline-none flex items-center justify-center w-16 h-16"><span class="text-2xl">✨</span></button>
     </div>
 
-    <!-- Modals (Hidden) -->
+    <!-- Setup Modal (Used only if offline mode is explicitly chosen or connection fails) -->
     <div id="setup-modal" class="fixed inset-0 bg-stone-900 bg-opacity-90 z-[150] hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-8">
-            <h2 class="text-2xl font-bold text-teal-800 mb-4">🚀 Setup Your LabOrbit</h2>
-            <p class="text-stone-600 mb-4 text-sm">Paste your <strong>Firebase Configuration</strong> JSON object below.</p>
-            <textarea id="firebase-config-input" class="w-full h-40 border border-stone-300 rounded-lg p-3 font-mono text-xs focus:ring-2 focus:ring-teal-500 outline-none mb-4" placeholder='{ "apiKey": "...", ... }'></textarea>
-            <div class="flex justify-end space-x-3">
-                <button onclick="saveConfigAndReload()" class="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-bold">Connect</button>
-            </div>
+            <h2 class="text-2xl font-bold text-teal-800 mb-2">Connection Issue</h2>
+            <p class="text-stone-500 mb-6 text-sm">Could not connect to Cloud. Switching to Offline Mode?</p>
+            <button onclick="startOfflineMode()" class="w-full py-2 bg-teal-600 text-white rounded-md text-sm font-bold hover:bg-teal-700 transition">Use Offline Mode</button>
         </div>
     </div>
 
+    <!-- Input Modal -->
     <div id="input-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[140] hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
             <h3 id="input-modal-title" class="font-bold text-xl text-stone-800 mb-4">Add Item</h3>
@@ -262,6 +303,7 @@
         </div>
     </div>
 
+    <!-- AI Chat Panel -->
     <div id="ai-chat-panel" class="fixed bottom-24 right-8 w-96 h-[500px] bg-white rounded-xl shadow-2xl border border-stone-200 z-[140] hidden flex flex-col transform transition-all duration-300 origin-bottom-right scale-95 opacity-0">
         <div class="p-4 bg-teal-600 text-white rounded-t-xl flex justify-between items-center">
             <h3 class="font-bold flex items-center"><span class="mr-2">🤖</span> AI Lab Assistant</h3>
@@ -280,6 +322,7 @@
         </div>
     </div>
 
+    <!-- AI Output Modal -->
     <div id="ai-output-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[150] hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
             <div class="p-4 border-b border-stone-200 flex justify-between items-center bg-stone-50 rounded-t-xl">
@@ -294,92 +337,56 @@
     </div>
 
     <script>
-        // --- 1. PARTICLE ANIMATION LOGIC ---
+        // --- 1. PARTICLE ANIMATION ---
         const canvas = document.getElementById('particle-canvas');
         const ctx = canvas.getContext('2d');
         let particles = [];
         let w, h;
-
-        function resize() {
-            w = canvas.width = window.innerWidth;
-            h = canvas.height = window.innerHeight;
-        }
+        function resize() { w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight; }
         window.addEventListener('resize', resize);
         resize();
-
         class Particle {
-            constructor() {
-                this.x = Math.random() * w;
-                this.y = Math.random() * h;
-                this.vx = (Math.random() - 0.5) * 0.5; // Slow movement
-                this.vy = (Math.random() - 0.5) * 0.5;
-                this.size = Math.random() * 2 + 1;
-            }
-            update() {
-                this.x += this.vx;
-                this.y += this.vy;
-                if (this.x < 0 || this.x > w) this.vx *= -1;
-                if (this.y < 0 || this.y > h) this.vy *= -1;
-            }
-            draw() {
-                ctx.fillStyle = 'rgba(45, 212, 191, 0.7)'; // Teal color
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-                ctx.fill();
-            }
+            constructor() { this.x = Math.random() * w; this.y = Math.random() * h; this.vx = (Math.random() - 0.5) * 0.5; this.vy = (Math.random() - 0.5) * 0.5; this.size = Math.random() * 2 + 1; }
+            update() { this.x += this.vx; this.y += this.vy; if (this.x < 0 || this.x > w) this.vx *= -1; if (this.y < 0 || this.y > h) this.vy *= -1; }
+            draw() { ctx.fillStyle = 'rgba(45, 212, 191, 0.7)'; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); }
         }
-
-        function initParticles() {
-            particles = [];
-            for (let i = 0; i < 80; i++) particles.push(new Particle());
-            animateParticles();
-        }
-
+        function initParticles() { particles = []; for (let i = 0; i < 80; i++) particles.push(new Particle()); animateParticles(); }
         function animateParticles() {
             ctx.clearRect(0, 0, w, h);
             for (let i = 0; i < particles.length; i++) {
-                particles[i].update();
-                particles[i].draw();
-                // Draw Connections
+                particles[i].update(); particles[i].draw();
                 for (let j = i; j < particles.length; j++) {
-                    const dx = particles[i].x - particles[j].x;
-                    const dy = particles[i].y - particles[j].y;
-                    const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 150) {
-                        ctx.strokeStyle = `rgba(45, 212, 191, ${0.2 - dist/1500})`;
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(particles[i].x, particles[i].y);
-                        ctx.lineTo(particles[j].x, particles[j].y);
-                        ctx.stroke();
-                    }
+                    const dx = particles[i].x - particles[j].x; const dy = particles[i].y - particles[j].y; const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < 150) { ctx.strokeStyle = `rgba(45, 212, 191, ${0.2 - dist/1500})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(particles[i].x, particles[i].y); ctx.lineTo(particles[j].x, particles[j].y); ctx.stroke(); }
                 }
             }
             requestAnimationFrame(animateParticles);
         }
         initParticles();
 
-        // --- 2. LANDING PAGE TRANSITION ---
+        // --- 2. TRANSITION & INIT CHECK ---
         window.enterApp = function() {
             const landing = document.getElementById('landing-page');
             const mainApp = document.getElementById('app-main');
-            
             landing.style.opacity = '0';
             setTimeout(() => {
                 landing.classList.add('hidden');
                 mainApp.classList.remove('opacity-0', 'pointer-events-none');
                 
-                // Trigger Setup Modal Check after entering
-                const localConfig = localStorage.getItem('lab_orbit_config');
-                if (!localConfig && typeof __firebase_config === 'undefined') {
-                    document.getElementById('setup-modal').classList.remove('hidden');
+                // Check setup strategy
+                const mode = localStorage.getItem('lab_orbit_mode');
+                if (mode === 'offline') {
+                    window.startOfflineMode();
+                } else if (typeof __firebase_config === 'undefined') {
+                    // Try auto-connect with hardcoded config
+                    startFirebaseApp(userFirebaseConfig, 'plan-2026-f69b3');
                 }
             }, 700);
         };
 
-        // --- 3. CORE APP LOGIC (Previously Defined) ---
+        // --- 3. CORE APP LOGIC ---
         // Gemini API
-        const apiKey = "AIzaSyC-3qYLxIXSRg-xoR8vu2B7DS98Xnh45pI"; 
+        const apiKey = ""; 
         async function callGemini(prompt, systemContext = "") {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
             const payload = { contents: [{ parts: [{ text: prompt }] }], systemInstruction: { parts: [{ text: systemContext }] } };
@@ -421,7 +428,7 @@
             ]
         });
 
-        // App Logic
+        // App State
         window.appData = null;
         let currentView = 'dashboard';
 
