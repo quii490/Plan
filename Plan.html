@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChiCheng Research Roadmap 2026</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Marked.js for Markdown rendering in AI Chat -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Firebase SDKs (Modular) -->
+    <script type="module">
+        import { initializeApp } from "firebase/app";
+        import { getAnalytics } from "firebase/analytics";
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- Configuration Strategy ---
+        // 1. If running in Canvas/Immersive, use system provided config.
+        // 2. If running on GitHub Pages, user must replace the fallback below.
+        
+        let firebaseConfig;
+        let appId = 'lab-orbit-default'; // Default ID for external use
+
+        if (typeof __firebase_config !== 'undefined') {
+            firebaseConfig = JSON.parse(__firebase_config);
+            if (typeof __app_id !== 'undefined') appId = __app_id;
+        } else {
+            // --- USER CONFIGURATION AREA FOR GITHUB PAGES ---
+            // Replace the object below with your own Firebase Project Config
+            firebaseConfig = {
+                apiKey: "AIzaSyC-3qYLxIXSRg-xoR8vu2B7DS98Xnh45pI",
+                authDomain: "plan-2026-f69b3.firebaseapp.com",
+                projectId: "plan-2026-f69b3",
+                storageBucket: "plan-2026-f69b3.firebasestorage.app",
+                messagingSenderId: "1015487842392",
+                appId: "1:1015487842392:web:96e7f72b90a17055d7e22d",
+                measurementId: "G-M8GR43SRVD"
+            };
+            // ------------------------------------------------
+            console.warn("Running in external mode. Ensure Firebase Config is set.");
+        }
+
+        // Init Firebase
+        const app = initializeApp(firebaseConfig);
+        const analytics = getAnalytics(app);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        let currentUser = null;
+        let unsubscribeData = null;
+
+        // --- Auth & Data Logic ---
+
+        async function initAuth() {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+                await signInAnonymously(auth);
+            }
+        }
+
+        initAuth();
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                setupDataListener(user.uid);
+            } else {
+                // Handle logout if needed
+            }
+        });
+
+        function setupDataListener(userId) {
+            // Path: artifacts/{appId}/users/{userId}/labData/main
+            const docRef = doc(db, 'artifacts', appId, 'users', userId, 'labData', 'main');
+            
+            unsubscribeData = onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    // Load data from Cloud
+                    window.appData = docSnap.data();
+                    window.renderCurrentView(); // Re-render UI
+                    window.updateGlobalProgress();
+                } else {
+                    // First time? Seed initial data
+                    const initialData = window.getInitialAppData();
+                    setDoc(docRef, initialData);
+                    window.appData = initialData;
+                    window.renderCurrentView();
+                }
+            }, (error) => {
+                console.error("Data sync error:", error);
+            });
+        }
+
+        // --- Global Helpers for Saving Data ---
+        window.saveData = async () => {
+            if (!currentUser) return;
+            const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'labData', 'main');
+            try {
+                await setDoc(docRef, window.appData); // Overwrite/Update full state
+            } catch (e) {
+                console.error("Save failed:", e);
+            }
+        };
+
+    </script>
+
+    <!-- Google Fonts: Noto Sans SC for Chinese support -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: 'Noto Sans SC', sans-serif;
+            background-color: #f5f5f4; /* stone-100 */
+        }
+        
+        /* Custom Chart Container */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 350px;
+        }
+
+        /* Flowchart Arrows */
+        .arrow-right::after {
+            content: '➔';
+            font-size: 1.5rem;
+            color: #9ca3af;
+            margin-left: 0.5rem;
+            margin-right: 0.5rem;
+        }
+        .last-step .arrow-right::after {
+            display: none;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #d6d3d1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a29e; }
+
+        /* Transitions */
+        .nav-item { transition: all 0.3s ease; }
+        .nav-item.active {
+            background-color: #e7e5e4;
+            border-left: 4px solid #0d9488;
+            font-weight: 700;
+        }
+
+        /* Group Hover for Delete Button */
+        .group:hover .delete-btn { opacity: 1; }
+
+        /* AI Fab */
+        .ai-fab {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            z-index: 50;
+            transition: transform 0.2s;
+        }
+        .ai-fab:hover { transform: scale(1.1); }
+        
+        /* Markdown Styles */
+        .markdown-body p { margin-bottom: 0.5em; }
+        .markdown-body pre { background: #f3f4f6; padding: 0.5em; border-radius: 4px; overflow-x: auto; }
+        .markdown-body code { font-family: monospace; background: #e5e7eb; padding: 2px 4px; border-radius: 2px; }
+        
+        /* Loading */
+        .typing-indicator span {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            background-color: #0d9488;
+            border-radius: 50%;
+            animation: typing 1s infinite;
+            margin: 0 2px;
+        }
+        .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+    </style>
+</head>
+<body class="text-stone-800 h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Sidebar Navigation -->
+    <aside class="w-full md:w-64 bg-white shadow-lg flex-shrink-0 flex flex-col z-20">
+        <div class="p-6 border-b border-stone-100 bg-stone-50">
+            <h1 class="text-2xl font-bold text-teal-800 tracking-tight">LabOrbit</h1>
+            <p class="text-xs text-stone-500 mt-1">Research Plan: ChiCheng</p>
+        </div>
+        
+        <nav class="flex-1 overflow-y-auto py-4">
+            <ul class="space-y-1">
+                <li>
+                    <button onclick="navigateTo('dashboard')" id="nav-dashboard" class="nav-item w-full text-left px-6 py-3 hover:bg-stone-50 text-stone-600 hover:text-teal-700 flex items-center">
+                        <span class="mr-3">📊</span> 仪表盘 (Dashboard)
+                    </button>
+                </li>
+                <li>
+                    <button onclick="navigateTo('roadmap')" id="nav-roadmap" class="nav-item w-full text-left px-6 py-3 hover:bg-stone-50 text-stone-600 hover:text-teal-700 flex items-center">
+                        <span class="mr-3">🗓️</span> 时间轴 (Timeline)
+                    </button>
+                </li>
+                <li>
+                    <button onclick="navigateTo('projects')" id="nav-projects" class="nav-item w-full text-left px-6 py-3 hover:bg-stone-50 text-stone-600 hover:text-teal-700 flex items-center">
+                        <span class="mr-3">🧬</span> 核心项目 (Pipelines)
+                    </button>
+                </li>
+                <li>
+                    <button onclick="navigateTo('skills')" id="nav-skills" class="nav-item w-full text-left px-6 py-3 hover:bg-stone-50 text-stone-600 hover:text-teal-700 flex items-center">
+                        <span class="mr-3">🧠</span> 技能树 (Skills)
+                    </button>
+                </li>
+                <li>
+                    <button onclick="navigateTo('resources')" id="nav-resources" class="nav-item w-full text-left px-6 py-3 hover:bg-stone-50 text-stone-600 hover:text-teal-700 flex items-center">
+                        <span class="mr-3">📚</span> 文献资源 (Reading)
+                    </button>
+                </li>
+            </ul>
+        </nav>
+
+        <div class="p-4 border-t border-stone-100 bg-stone-50">
+            <div class="text-xs text-stone-400 mb-2">Overall Progress</div>
+            <div class="w-full bg-stone-200 rounded-full h-2.5">
+                <div id="global-progress-bar" class="bg-teal-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <div id="global-progress-text" class="text-right text-xs text-teal-700 font-bold mt-1">0%</div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto bg-stone-50 p-4 md:p-8 relative">
+        
+        <!-- Header -->
+        <header class="mb-8 flex justify-between items-end border-b border-stone-200 pb-4">
+            <div>
+                <h2 id="page-title" class="text-3xl font-bold text-stone-800">Welcome, ChiCheng</h2>
+                <p id="page-desc" class="text-stone-500 mt-2 max-w-2xl">
+                    Here is your interactive roadmap for the upcoming weeks. Track your tasks, learn the pipelines, and manage your resources.
+                </p>
+            </div>
+            <div class="hidden md:block text-right">
+                <div class="text-sm font-semibold text-teal-600">Current Phase</div>
+                <div class="text-2xl font-bold text-stone-700">Week 1: Setup</div>
+            </div>
+        </header>
+
+        <!-- Dynamic Content Container -->
+        <div id="content-container" class="space-y-6">
+            <div class="flex items-center justify-center h-64 text-stone-400">
+                <div class="typing-indicator"><span></span><span></span><span></span></div>
+                <span class="ml-2">Connecting to Lab Data...</span>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- AI Floating Action Button -->
+    <button onclick="toggleChat()" class="ai-fab bg-teal-600 text-white p-4 rounded-full shadow-lg hover:bg-teal-700 focus:outline-none flex items-center justify-center w-16 h-16">
+        <span class="text-2xl">✨</span>
+    </button>
+
+    <!-- Generic Input Modal -->
+    <div id="input-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+            <h3 id="input-modal-title" class="font-bold text-xl text-stone-800 mb-4">Add Item</h3>
+            <div id="input-fields" class="space-y-4">
+                <!-- Inputs injected via JS -->
+            </div>
+            <div class="mt-6 flex justify-end space-x-3">
+                <button onclick="closeInputModal()" class="px-4 py-2 bg-stone-100 text-stone-600 rounded-lg hover:bg-stone-200">Cancel</button>
+                <button id="input-confirm-btn" class="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Chat Modal/Panel -->
+    <div id="ai-chat-panel" class="fixed bottom-24 right-8 w-96 h-[500px] bg-white rounded-xl shadow-2xl border border-stone-200 z-50 hidden flex flex-col transform transition-all duration-300 origin-bottom-right scale-95 opacity-0">
+        <div class="p-4 bg-teal-600 text-white rounded-t-xl flex justify-between items-center">
+            <h3 class="font-bold flex items-center"><span class="mr-2">🤖</span> AI Lab Assistant</h3>
+            <button onclick="toggleChat()" class="text-white hover:text-teal-200 text-xl">&times;</button>
+        </div>
+        <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4 bg-stone-50">
+            <div class="flex flex-col space-y-1">
+                <div class="self-start bg-white p-3 rounded-lg rounded-tl-none shadow-sm border border-stone-100 max-w-[85%] text-sm">
+                    你好！我是你的 AI 科研助手。
+                </div>
+            </div>
+        </div>
+        <div class="p-3 bg-white border-t border-stone-200 rounded-b-xl">
+            <div class="flex space-x-2">
+                <input type="text" id="chat-input" class="flex-1 border border-stone-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-teal-500" placeholder="Ask about bioinfo..." onkeypress="handleEnter(event)">
+                <button onclick="sendChatMessage()" class="bg-teal-600 text-white px-3 py-2 rounded-lg hover:bg-teal-700 transition">➤</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Output Modal -->
+    <div id="ai-output-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="p-4 border-b border-stone-200 flex justify-between items-center bg-stone-50 rounded-t-xl">
+                <h3 id="modal-title" class="font-bold text-lg text-teal-800 flex items-center"><span class="mr-2">✨</span> AI Result</h3>
+                <button onclick="closeModal()" class="text-stone-400 hover:text-stone-600 text-2xl">&times;</button>
+            </div>
+            <div id="modal-content" class="p-6 overflow-y-auto markdown-body text-sm text-stone-700"></div>
+            <div class="p-4 border-t border-stone-200 flex justify-end">
+                <button onclick="closeModal()" class="px-4 py-2 bg-stone-200 text-stone-700 rounded-lg hover:bg-stone-300 transition">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Gemini API ---
+        const apiKey = ""; 
+        
+        async function callGemini(prompt, systemContext = "") {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                systemInstruction: { parts: [{ text: systemContext }] }
+            };
+            try {
+                const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (!response.ok) throw new Error(`API Error`);
+                const data = await response.json();
+                return data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+            } catch (error) { return "Error connecting to AI."; }
+        }
+
+        // --- Data Seeder (Initial State) ---
+        window.getInitialAppData = () => ({
+            dashboard: {
+                urgent: [
+                    { id: 'u1', text: '联系 Jiatong 关于学校 Bioinfo 平台账号', done: false, tag: 'Admin' },
+                    { id: 'u2', text: '发送邮件抄送给 PI 和 Xiaoting (经费支付)', done: false, tag: 'Admin' },
+                    { id: 'u3', text: '下载 NEB EM-seq Demo Data', done: false, tag: 'Project A' },
+                    { id: 'u4', text: '阅读 EM-seq 手册和 Vaisvila et al. 2021', done: false, tag: 'Reading' }
+                ],
+                stats: { totalTasks: 20, completed: 0 }
+            },
+            timeline: [
+                {
+                    id: 'phase1',
+                    title: '第一阶段: 适应与启动 (Week 1-2)',
+                    desc: 'Focus on environment setup and theoretical understanding.',
+                    tasks: [
+                        { id: 't1_1', text: '账号注册与经费确认', done: false },
+                        { id: 't1_2', text: '配置 Linux 环境 (Conda/Docker)', done: false },
+                        { id: 't1_3', text: '详细阅读 EM-seq 手册和参考 Paper', done: false }
+                    ]
+                },
+                {
+                    id: 'phase2',
+                    title: '第二阶段: Pipeline 落地 (Month 1)',
+                    desc: 'Execute EM-seq analysis and explore GEO.',
+                    tasks: [
+                        { id: 't2_1', text: '使用 methylKit 分析数据', done: false },
+                        { id: 't2_2', text: '复现 Paper 图表', done: false }
+                    ]
+                },
+                {
+                    id: 'phase3',
+                    title: '第三阶段: 深入挖掘与拓展 (Month 2-3)',
+                    desc: 'Scale up analysis and integrate ML.',
+                    tasks: [
+                        { id: 't3_1', text: '批量下载 GEO 数据', done: false },
+                        { id: 't3_2', text: '运行 ChIP-seq 流程关注 TE 区域', done: false }
+                    ]
+                }
+            ],
+            projects: {
+                emseq: {
+                    title: 'Project A: EM-seq Protocol',
+                    goal: '建立基于酶法转化的 DNA 甲基化分析流程。',
+                    pipeline: [
+                        { name: 'Raw Data', tool: 'NEB Demo', desc: 'Download fastq', aiPrompt: 'How to download public NGS data using curl or wget? Give an example command.' },
+                        { name: 'QC & Trim', tool: 'FastQC, Trim Galore', desc: 'Critical: Adaptor removal', aiPrompt: 'Write a bash script command to run Trim Galore on paired-end fastq files.' },
+                        { name: 'Alignment', tool: 'Bismark / bwa-meth', desc: 'Use EM-seq specific params', aiPrompt: 'Write a Bismark alignment command for EM-seq data (using bowtie2 backend). Explain key parameters.' },
+                        { name: 'Extraction', tool: 'Bismark Extractor', desc: 'Get CpG context', aiPrompt: 'Write the command for bismark_methylation_extractor. What do the output files mean?' },
+                        { name: 'Analysis', tool: 'methylKit (R)', desc: 'DMR identification', aiPrompt: 'Show a snippet of R code using methylKit to read Bismark coverage files and calculate differential methylation.' }
+                    ]
+                },
+                te: {
+                    title: 'Project B: TE Regulation',
+                    goal: '挖掘 GEO 数据，寻找特异性结合转座子的新型调控因子。',
+                    pipeline: [
+                        { name: 'Data Mining', tool: 'GEO Database', desc: 'Select high-quality datasets', aiPrompt: 'Keywords to search ChIP-seq in GEO?' },
+                        { name: 'Alignment', tool: 'Bowtie2', desc: 'Handle Multi-reads carefully', aiPrompt: 'Bowtie2 command for ChIP-seq?' },
+                        { name: 'Peak Calling', tool: 'MACS2', desc: 'Standard peak detection', aiPrompt: 'MACS2 callpeak command example.' },
+                        { name: 'TE Quant', tool: 'TEtranscripts', desc: 'Quantify repetitive elements', aiPrompt: 'How TEtranscripts works?' },
+                        { name: 'Discovery', tool: 'Python/ML', desc: 'Cluster regulators', aiPrompt: 'Python sklearn clustering for TFs?' }
+                    ]
+                }
+            },
+            skills: [
+                { area: 'Linux/Shell', level: 80, desc: '文本处理, 自动化脚本' },
+                { area: 'R Language', level: 70, desc: 'Bioconductor, methylKit' },
+                { area: 'Python', level: 40, desc: 'Pandas, BioPython' },
+                { area: 'Statistics', level: 50, desc: 'Hypothesis testing' },
+                { area: 'Machine Learning', level: 30, desc: 'Clustering, Classification' }
+            ],
+            resources: [
+                { id: 'r1', type: 'Paper', title: 'EM-seq Core: Vaisvila et al. 2021', link: 'https://pubmed.ncbi.nlm.nih.gov/34140313/', tags: ['EM-seq', 'Core'], aiPrompt: 'Summarize Vaisvila 2021 paper.' },
+                { id: 'r2', type: 'Manual', title: 'NEB EM-seq Kit Manual', link: '#', tags: ['Protocol'], aiPrompt: 'Critical steps in NEB EM-seq?' },
+                { id: 'r3', type: 'Tool', title: 'Bismark User Guide', link: '#', tags: ['Software'], aiPrompt: 'Bismark alignment details?' }
+            ]
+        });
+
+        // Initialize with empty state (waiting for Firebase)
+        window.appData = null;
+        let currentView = 'dashboard';
+
+        // --- View Navigation ---
+        window.navigateTo = function(viewId) {
+            currentView = viewId;
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`nav-${viewId}`).classList.add('active');
+            window.renderCurrentView();
+        }
+
+        window.renderCurrentView = function() {
+            if (!window.appData) return; // Wait for data
+            
+            const container = document.getElementById('content-container');
+            container.innerHTML = '';
+            const titleEl = document.getElementById('page-title');
+            
+            // Map title
+            const titles = {
+                dashboard: '仪表盘 (Dashboard)',
+                roadmap: '时间轴规划 (Timeline)',
+                projects: '核心项目 (Pipelines)',
+                skills: '技能成长 (Skills)',
+                resources: '文献资源 (Resources)'
+            };
+            titleEl.innerText = titles[currentView];
+
+            if (currentView === 'dashboard') renderDashboard(container);
+            else if (currentView === 'roadmap') renderRoadmap(container);
+            else if (currentView === 'projects') renderProjects(container);
+            else if (currentView === 'skills') renderSkills(container);
+            else if (currentView === 'resources') renderResources(container);
+        }
+
+        // --- Renderers ---
+
+        function renderDashboard(container) {
+            const grid = document.createElement('div');
+            grid.className = 'grid grid-cols-1 lg:grid-cols-2 gap-6';
+
+            // Urgent Tasks
+            const urgentCard = document.createElement('div');
+            urgentCard.className = 'bg-white p-6 rounded-xl shadow-sm border border-stone-100';
+            urgentCard.innerHTML = `
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-bold text-lg text-red-600 flex items-center"><span class="mr-2">🔥</span> 本周速办 (Immediate)</h3>
+                    <button onclick="openAddUrgentModal()" class="text-stone-400 hover:text-teal-600 font-bold text-xl" title="Add Task">+</button>
+                </div>
+                <ul class="space-y-3">
+                    ${window.appData.dashboard.urgent.map((task, idx) => `
+                        <li class="flex items-start p-2 hover:bg-stone-50 rounded cursor-pointer transition group">
+                            <div class="flex-shrink-0 mt-1 mr-3" onclick="toggleTask('${task.id}', 'urgent')">
+                                <div class="w-5 h-5 border-2 ${task.done ? 'bg-teal-500 border-teal-500' : 'border-stone-300'} rounded flex items-center justify-center">
+                                    ${task.done ? '<span class="text-white text-xs">✓</span>' : ''}
+                                </div>
+                            </div>
+                            <div class="flex-1" onclick="toggleTask('${task.id}', 'urgent')">
+                                <p class="text-sm ${task.done ? 'line-through text-stone-400' : 'text-stone-700'}">${task.text}</p>
+                                <span class="text-xs text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded mt-1 inline-block">${task.tag || 'General'}</span>
+                            </div>
+                            <button onclick="deleteUrgentTask(${idx})" class="delete-btn opacity-0 text-red-400 hover:text-red-600 ml-2">×</button>
+                        </li>
+                    `).join('')}
+                </ul>
+            `;
+
+            // Chart
+            const chartCard = document.createElement('div');
+            chartCard.className = 'bg-white p-6 rounded-xl shadow-sm border border-stone-100 flex flex-col items-center';
+            chartCard.innerHTML = `
+                <h3 class="font-bold text-lg text-stone-700 mb-2 w-full text-left">任务完成概览</h3>
+                <div class="chart-container">
+                    <canvas id="dashboardChart"></canvas>
+                </div>
+            `;
+
+            grid.appendChild(urgentCard);
+            grid.appendChild(chartCard);
+            container.appendChild(grid);
+
+            // Chart Init
+            setTimeout(() => {
+                const ctx = document.getElementById('dashboardChart').getContext('2d');
+                const stats = window.calculateTotalProgress();
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Completed', 'Remaining'],
+                        datasets: [{
+                            data: [stats.completed, stats.remaining],
+                            backgroundColor: ['#0d9488', '#e7e5e4'],
+                            borderWidth: 0
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }, 100);
+        }
+
+        function renderRoadmap(container) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'space-y-8';
+
+            window.appData.timeline.forEach((phase, pIdx) => {
+                const phaseEl = document.createElement('div');
+                phaseEl.className = 'bg-white rounded-xl shadow-sm border-l-4 border-teal-500 overflow-hidden';
+                
+                const header = document.createElement('div');
+                header.className = 'p-6 bg-stone-50 border-b border-stone-100 flex justify-between items-center';
+                header.innerHTML = `
+                    <div class="cursor-pointer flex-1" onclick="document.getElementById('tasks-${phase.id}').classList.toggle('hidden')">
+                        <h3 class="font-bold text-lg text-stone-800">${phase.title}</h3>
+                        <p class="text-sm text-stone-500">${phase.desc}</p>
+                    </div>
+                    <button onclick="openAddTimelineModal(${pIdx})" class="ml-4 text-teal-600 hover:bg-teal-50 px-2 py-1 rounded text-sm font-bold">+ Add Task</button>
+                `;
+
+                const taskList = document.createElement('div');
+                taskList.id = `tasks-${phase.id}`;
+                taskList.className = `p-6 bg-white`;
+                
+                taskList.innerHTML = `
+                    <div class="space-y-3">
+                        ${phase.tasks.map((task, tIdx) => `
+                            <div class="flex items-center p-3 border border-stone-100 rounded hover:bg-stone-50 transition group">
+                                <div class="w-6 h-6 border-2 ${task.done ? 'bg-teal-500 border-teal-500' : 'border-stone-300'} rounded-full flex items-center justify-center mr-4 cursor-pointer" onclick="toggleTask('${task.id}', 'timeline', '${phase.id}')">
+                                    ${task.done ? '<span class="text-white text-sm">✓</span>' : ''}
+                                </div>
+                                <span class="flex-1 ${task.done ? 'line-through text-stone-400' : 'text-stone-700 font-medium'}">${task.text}</span>
+                                <button onclick="deleteTimelineTask(${pIdx}, ${tIdx})" class="delete-btn opacity-0 text-red-400 hover:text-red-600 px-2">Delete</button>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+
+                phaseEl.appendChild(header);
+                phaseEl.appendChild(taskList);
+                wrapper.appendChild(phaseEl);
+            });
+            container.appendChild(wrapper);
+        }
+
+        function renderProjects(container) {
+            const tabs = document.createElement('div');
+            tabs.className = 'flex space-x-4 border-b border-stone-200 mb-6';
+            tabs.innerHTML = `
+                <button onclick="renderPipeline('emseq')" class="pb-2 border-b-2 font-bold text-teal-800">EM-seq</button>
+                <button onclick="renderPipeline('te')" class="pb-2 border-b-2 text-stone-500 hover:text-stone-700">TE Analysis</button>
+            `;
+            const content = document.createElement('div');
+            content.id = 'project-content';
+            container.appendChild(tabs);
+            container.appendChild(content);
+            renderPipeline('emseq'); // default
+        }
+
+        window.renderPipeline = function(projId) {
+            const project = window.appData.projects[projId];
+            const content = document.getElementById('project-content');
+            content.innerHTML = ''; // clear
+
+            const info = document.createElement('div');
+            info.className = 'mb-8 bg-white p-6 rounded-xl border border-stone-100 shadow-sm';
+            info.innerHTML = `<h3 class="text-xl font-bold text-stone-800 mb-2">${project.title}</h3><p class="text-stone-600"><span class="font-bold text-teal-600">Goal:</span> ${project.goal}</p>`;
+            content.appendChild(info);
+
+            const flow = document.createElement('div');
+            flow.className = 'flex flex-col md:flex-row space-y-4 md:space-y-0 overflow-x-auto pb-4';
+            project.pipeline.forEach((step, idx) => {
+                const el = document.createElement('div');
+                el.className = `flex-1 min-w-[180px] group ${idx === project.pipeline.length - 1 ? 'last-step' : 'arrow-right'} flex items-center`;
+                el.innerHTML = `
+                    <div class="flex-1 bg-white border border-stone-200 p-4 rounded-lg shadow-sm">
+                        <div class="flex justify-between items-start mb-2">
+                            <div class="text-xs font-bold text-teal-600">STEP ${idx+1}</div>
+                            <button onclick="generateScript('${step.tool}', '${step.aiPrompt}')" class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded">✨ Script</button>
+                        </div>
+                        <div class="font-bold text-stone-800">${step.name}</div>
+                        <div class="text-xs text-stone-500 bg-stone-100 p-1 rounded inline-block my-1">${step.tool}</div>
+                    </div>
+                `;
+                flow.appendChild(el);
+            });
+            content.appendChild(flow);
+        }
+
+        function renderSkills(container) {
+            const chartCard = document.createElement('div');
+            chartCard.className = 'bg-white p-6 rounded-xl shadow-sm border border-stone-100 flex flex-col items-center mb-6';
+            chartCard.innerHTML = `<div class="chart-container"><canvas id="skillsChart"></canvas></div>`;
+            container.appendChild(chartCard);
+            
+            setTimeout(() => {
+                const ctx = document.getElementById('skillsChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'radar',
+                    data: {
+                        labels: window.appData.skills.map(s => s.area),
+                        datasets: [{
+                            label: 'Proficiency',
+                            data: window.appData.skills.map(s => s.level),
+                            fill: true,
+                            backgroundColor: 'rgba(13, 148, 136, 0.2)',
+                            borderColor: '#0d9488'
+                        }]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false }
+                });
+            }, 100);
+        }
+
+        function renderResources(container) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'bg-white rounded-xl shadow-sm border border-stone-100 overflow-hidden';
+            
+            const header = document.createElement('div');
+            header.className = 'p-4 bg-stone-50 border-b border-stone-100 flex justify-between items-center';
+            header.innerHTML = `
+                <span class="font-bold text-stone-600">Saved Items</span>
+                <button onclick="openAddResourceModal()" class="text-teal-600 text-sm font-bold hover:underline">+ Add Resource</button>
+            `;
+            wrapper.appendChild(header);
+
+            const table = document.createElement('table');
+            table.className = 'min-w-full text-left text-sm';
+            table.innerHTML = `
+                <tbody class="divide-y divide-stone-100">
+                    ${window.appData.resources.map((res, idx) => `
+                        <tr class="hover:bg-stone-50 group">
+                            <td class="p-4"><span class="px-2 py-1 text-xs rounded font-bold bg-stone-100">${res.type}</span></td>
+                            <td class="p-4 font-medium text-stone-800">${res.title}</td>
+                            <td class="p-4 text-right">
+                                <button onclick="explainConcept('${res.title}', '${res.aiPrompt}')" class="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded mr-2">✨ Explain</button>
+                                <button onclick="deleteResource(${idx})" class="text-red-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition">Delete</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+            wrapper.appendChild(table);
+            container.appendChild(wrapper);
+        }
+
+        // --- Logic & CRUD ---
+
+        window.toggleTask = function(taskId, source, phaseId = null) {
+            if (source === 'urgent') {
+                const task = window.appData.dashboard.urgent.find(t => t.id === taskId);
+                if (task) task.done = !task.done;
+            } else if (source === 'timeline') {
+                const phase = window.appData.timeline.find(p => p.id === phaseId);
+                const task = phase.tasks.find(t => t.id === taskId);
+                if (task) task.done = !task.done;
+            }
+            window.saveData();
+            window.renderCurrentView();
+            window.updateGlobalProgress();
+        };
+
+        // Modal Helpers
+        let onConfirmAction = null;
+        window.openInputModal = function(title, fields, onConfirm) {
+            document.getElementById('input-modal-title').innerText = title;
+            const container = document.getElementById('input-fields');
+            container.innerHTML = fields.map(f => `
+                <div>
+                    <label class="block text-xs font-bold text-stone-500 uppercase mb-1">${f.label}</label>
+                    <input type="text" id="input-${f.id}" class="w-full border border-stone-300 rounded p-2 text-sm focus:border-teal-500 outline-none" placeholder="${f.placeholder || ''}">
+                </div>
+            `).join('');
+            document.getElementById('input-modal').classList.remove('hidden');
+            
+            // Set Confirm Action
+            const btn = document.getElementById('input-confirm-btn');
+            const newBtn = btn.cloneNode(true); // Remove old listeners
+            btn.parentNode.replaceChild(newBtn, btn);
+            
+            newBtn.onclick = () => {
+                const values = {};
+                fields.forEach(f => values[f.id] = document.getElementById(`input-${f.id}`).value);
+                onConfirm(values);
+                closeInputModal();
+            };
+        };
+
+        window.closeInputModal = () => document.getElementById('input-modal').classList.add('hidden');
+
+        // CRUD: Dashboard
+        window.openAddUrgentModal = function() {
+            openInputModal('Add Urgent Task', [
+                { id: 'text', label: 'Task Description' },
+                { id: 'tag', label: 'Tag (e.g., Admin, Lab)' }
+            ], (vals) => {
+                if(!vals.text) return;
+                window.appData.dashboard.urgent.push({
+                    id: 'u' + Date.now(),
+                    text: vals.text,
+                    tag: vals.tag || 'General',
+                    done: false
+                });
+                window.saveData();
+                renderCurrentView();
+            });
+        };
+
+        window.deleteUrgentTask = function(idx) {
+            if(confirm('Delete this task?')) {
+                window.appData.dashboard.urgent.splice(idx, 1);
+                window.saveData();
+                renderCurrentView();
+            }
+        };
+
+        // CRUD: Timeline
+        window.openAddTimelineModal = function(phaseIdx) {
+            openInputModal('Add Timeline Task', [
+                { id: 'text', label: 'Task Description' }
+            ], (vals) => {
+                if(!vals.text) return;
+                window.appData.timeline[phaseIdx].tasks.push({
+                    id: 't' + Date.now(),
+                    text: vals.text,
+                    done: false
+                });
+                window.saveData();
+                renderCurrentView();
+            });
+        };
+
+        window.deleteTimelineTask = function(phaseIdx, taskIdx) {
+            if(confirm('Delete this task?')) {
+                window.appData.timeline[phaseIdx].tasks.splice(taskIdx, 1);
+                window.saveData();
+                renderCurrentView();
+            }
+        };
+
+        // CRUD: Resources
+        window.openAddResourceModal = function() {
+            openInputModal('Add Resource', [
+                { id: 'title', label: 'Title / Paper Name' },
+                { id: 'type', label: 'Type (Paper, Tool, Manual)' },
+                { id: 'prompt', label: 'AI Prompt for Explanation' }
+            ], (vals) => {
+                if(!vals.title) return;
+                window.appData.resources.push({
+                    id: 'r' + Date.now(),
+                    title: vals.title,
+                    type: vals.type || 'Other',
+                    link: '#',
+                    tags: ['Custom'],
+                    aiPrompt: vals.prompt || 'Explain this resource.'
+                });
+                window.saveData();
+                renderCurrentView();
+            });
+        };
+
+        window.deleteResource = function(idx) {
+            if(confirm('Remove resource?')) {
+                window.appData.resources.splice(idx, 1);
+                window.saveData();
+                renderCurrentView();
+            }
+        };
+
+        // --- Helpers ---
+        window.calculateTotalProgress = function() {
+            if (!window.appData) return { completed: 0, remaining: 0, percentage: 0 };
+            let total = 0, completed = 0;
+            total += window.appData.dashboard.urgent.length;
+            completed += window.appData.dashboard.urgent.filter(t => t.done).length;
+            window.appData.timeline.forEach(p => {
+                total += p.tasks.length;
+                completed += p.tasks.filter(t => t.done).length;
+            });
+            return { completed, remaining: total - completed, percentage: total === 0 ? 0 : Math.round((completed/total)*100) };
+        };
+
+        window.updateGlobalProgress = function() {
+            const stats = window.calculateTotalProgress();
+            const bar = document.getElementById('global-progress-bar');
+            const text = document.getElementById('global-progress-text');
+            if(bar && text) {
+                bar.style.width = `${stats.percentage}%`;
+                text.innerText = `${stats.percentage}%`;
+            }
+        };
+
+        // --- Chat & AI Modal ---
+        window.toggleChat = () => {
+            const p = document.getElementById('ai-chat-panel');
+            p.classList.toggle('hidden');
+            if(!p.classList.contains('hidden')) {
+                setTimeout(() => { p.classList.remove('scale-95','opacity-0'); p.classList.add('scale-100','opacity-100'); }, 10);
+            } else {
+                p.classList.remove('scale-100','opacity-100'); p.classList.add('scale-95','opacity-0');
+            }
+        };
+        window.handleEnter = (e) => { if(e.key==='Enter') window.sendChatMessage(); };
+        window.sendChatMessage = async () => {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if(!text) return;
+            addMsg('user', text);
+            input.value = '';
+            addLoading();
+            const res = await callGemini(text);
+            removeLoading();
+            addMsg('ai', res);
+        };
+        function addMsg(role, text) {
+            const c = document.getElementById('chat-messages');
+            const d = document.createElement('div');
+            d.className = 'flex flex-col space-y-1';
+            d.innerHTML = role === 'user' 
+                ? `<div class="self-end bg-teal-600 text-white p-3 rounded-lg max-w-[85%] text-sm">${text}</div>`
+                : `<div class="self-start bg-white p-3 rounded-lg border border-stone-100 max-w-[85%] text-sm markdown-body">${marked.parse(text)}</div>`;
+            c.appendChild(d);
+            c.scrollTop = c.scrollHeight;
+        }
+        function addLoading() {
+            const c = document.getElementById('chat-messages');
+            const d = document.createElement('div');
+            d.id = 'loading-ind';
+            d.className = 'self-start bg-white p-3 rounded-lg border border-stone-100';
+            d.innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            c.appendChild(d);
+            c.scrollTop = c.scrollHeight;
+        }
+        function removeLoading() {
+            const el = document.getElementById('loading-ind');
+            if(el) el.remove();
+        }
+
+        window.closeModal = () => document.getElementById('ai-output-modal').classList.add('hidden');
+        
+        window.generateScript = async (tool, prompt) => {
+            document.getElementById('ai-output-modal').classList.remove('hidden');
+            document.getElementById('modal-content').innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            const res = await callGemini(prompt, "Expert Bioinformatics Scripter.");
+            document.getElementById('modal-content').innerHTML = marked.parse(res);
+        };
+
+        window.explainConcept = async (title, prompt) => {
+            document.getElementById('ai-output-modal').classList.remove('hidden');
+            document.getElementById('modal-content').innerHTML = '<div class="typing-indicator"><span></span><span></span><span></span></div>';
+            const res = await callGemini(prompt, "Expert Biology Tutor.");
+            document.getElementById('modal-content').innerHTML = marked.parse(res);
+        };
+
+        // Init
+        document.addEventListener('DOMContentLoaded', () => {
+            // Wait for Firebase to load data...
+        });
+
+    </script>
+</body>
+</html>
